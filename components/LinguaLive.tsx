@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
+import { DeepgramTranscriber } from '@/lib/deepgram';
 
 // ─── Language Data ──────────────────────────────────────────────
 const LANGUAGES = [
@@ -124,6 +125,7 @@ export default function Home() {
   const analyserRef         = useRef<AnalyserNode | null>(null);
   const micStreamRef        = useRef<MediaStream | null>(null);
   const recognitionRef      = useRef<any>(null);
+  const transcriberRef      = useRef<DeepgramTranscriber | null>(null);
   const timerIntervalRef    = useRef<NodeJS.Timeout | null>(null);
   const visualizerRef       = useRef<HTMLCanvasElement>(null);
   const animationFrameRef   = useRef<number | null>(null);
@@ -140,8 +142,13 @@ export default function Home() {
   // ─── Browser support ──────────────────────────────────────────
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      setIsBrowserSupported(!!SR);
+      const ok = !!(
+        navigator.mediaDevices &&
+        navigator.mediaDevices.getUserMedia &&
+        window.MediaRecorder &&
+        window.WebSocket
+      );
+      setIsBrowserSupported(ok);
     }
   }, []);
 
@@ -263,7 +270,8 @@ export default function Home() {
             // Direct cleanup without calling stopSession to avoid circular dependency
             setIsListening(false);
             setIsPaused(false);
-            try { recognitionRef.current?.stop(); } catch { /* ok */ }
+            try { transcriberRef.current?.stop(); } catch { /* ok */ }
+            transcriberRef.current = null;
             if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
             stream?.getTracks().forEach(t => t.stop());
             if (audioContextRef.current?.state !== 'closed') audioContextRef.current?.close();
@@ -394,13 +402,12 @@ export default function Home() {
   );
 
   // ─── Add transcript entry ────────────────────────────────────
-  const addTranscriptEntry = useCallback((original: string) => {
+  const addTranscriptEntry = useCallback((original: string, speaker: number) => {
     const id  = ++entryIdCounterRef.current;
     const ts  = new Date().toTimeString().slice(0, 8);
-    const spk = detectSpeakerChange();
-    const spkLabel = speakerCount > 1 ? `Speaker ${spk + 1}` : 'You';
+    const spkLabel = `Speaker ${speaker + 1}`;
 
-    const entry: TranscriptEntry = { id, timestamp: ts, original, translated: null, speakerIndex: spk, speakerLabel: spkLabel, isTranslating: true };
+    const entry: TranscriptEntry = { id, timestamp: ts, original, translated: null, speakerIndex: speaker, speakerLabel: spkLabel, isTranslating: true };
     setTranscripts(prev => [...prev, entry]);
 
     if (sourceLang !== targetLang) {
@@ -410,7 +417,7 @@ export default function Home() {
     } else {
       setTranscripts(prev => prev.map(e => e.id === id ? { ...e, translated: original, isTranslating: false } : e));
     }
-  }, [sourceLang, targetLang, translateText, detectSpeakerChange, speakerCount]);
+  }, [sourceLang, targetLang, translateText]);
 
   // ─── Cleanup ──────────────────────────────────────────────────
   const stopAudio = useCallback(() => {
@@ -423,7 +430,8 @@ export default function Home() {
   }, []);
 
   const stopRecognition = useCallback(() => {
-    try { recognitionRef.current?.stop(); } catch { /* ok */ }
+    try { transcriberRef.current?.stop(); } catch { /* ok */ }
+    transcriberRef.current = null;
   }, []);
 
   const stopSession = useCallback(() => {
@@ -507,48 +515,70 @@ export default function Home() {
     setIsConnecting(true);
     const ok = await initAudio();
     if (!ok) { setIsConnecting(false); return; }
-    const recOk = initRecognition();
-    if (!recOk) { stopAudio(); setIsConnecting(false); return; }
+
+    // Build the Deepgram transcriber; its callbacks drive the live transcript.
+    const transcriber = new DeepgramTranscriber({
+      language: sourceLang,
+      callbacks: {
+        onInterim: (text, speaker) => {
+          setActiveSpeakerIdx(speaker);
+          setInterimText(text);
+          if (text && text !== lastInterimTextRef.current) {
+            lastInterimTextRef.current = text;
+            debouncedTranslate(text);
+          }
+        },
+        onFinal: (text, speaker) => {
+          if (text) addTranscriptEntry(text, speaker);
+          setInterimText('');
+          setInterimTranslation('');
+          lastInterimTextRef.current = '';
+        },
+        onError: (msg) => {
+          toast({ variant: 'destructive', title: 'Transcription problem', description: msg });
+        },
+      },
+    });
+    transcriberRef.current = transcriber;
 
     try {
-      recognitionRef.current?.start();
+      await transcriber.start(micStreamRef.current!);
       setIsListening(true);
       setIsPaused(false);
       setElapsedTime(0);
       setInterimText('');
       setInterimTranslation('');
-      lastFinalIndexRef.current  = 0;
-      currentSpeakerRef.current  = 0;
-      lastSegmentTimeRef.current = Date.now();
       lastInterimTextRef.current = '';
       setView('session');
       toast({
         title: '🎙 Translation Live',
         description: `${getLang(sourceLang)?.flag} ${getLang(sourceLang)?.name} → ${getLang(targetLang)?.flag} ${getLang(targetLang)?.name}`,
       });
-    } catch { /* ok */ }
+    } catch (err) {
+      transcriberRef.current = null;
+      stopAudio();
+      toast({ variant: 'destructive', title: 'Could not start translation', description: err instanceof Error ? err.message : 'Transcription failed to start.' });
+    }
     setIsConnecting(false);
-  }, [sourceLang, targetLang, initAudio, initRecognition, stopAudio, toast]);
+  }, [sourceLang, targetLang, initAudio, stopAudio, toast, addTranscriptEntry, debouncedTranslate]);
 
   // ─── Toggle pause ─────────────────────────────────────────────
   const togglePause = useCallback(() => {
     if (!isListening) return;
     if (isPaused) {
-      recognitionRef.current!.lang = getLang(sourceLang)?.speechCode || 'en-US';
-      lastFinalIndexRef.current = 0;
-      try { recognitionRef.current?.start(); } catch { /* ok */ }
+      transcriberRef.current?.resume();
       setIsPaused(false);
       setInterimText('');
       setInterimTranslation('');
     } else {
-      stopRecognition();
+      transcriberRef.current?.pause();
       setIsPaused(true);
       if (translationTimeoutRef.current) {
         clearTimeout(translationTimeoutRef.current);
         translationTimeoutRef.current = null;
       }
     }
-  }, [isListening, isPaused, sourceLang, stopRecognition]);
+  }, [isListening, isPaused]);
 
   // ─── Mute toggle ─────────────────────────────────────────────
   const toggleMute = useCallback(() => {

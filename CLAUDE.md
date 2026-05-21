@@ -21,9 +21,13 @@ There is no test suite.
 
 ## Environment
 
-`ANTHROPIC_API_KEY` is **required** — set it in `.env` (copy `.env.example`).
-Without it, `/api/translate` returns a 500. Optional: `TRANSLATION_MODEL`,
-`SUMMARY_MODEL`.
+Two keys are **required** (set in `.env` locally / Vercel env vars in prod):
+- `ANTHROPIC_API_KEY` — Claude, for translation + summaries. Without it,
+  `/api/translate` returns 500.
+- `DEEPGRAM_API_KEY` — Deepgram, for live speech-to-text. Without it,
+  `/api/deepgram-token` returns 500 and a session can't start.
+
+Optional: `TRANSLATION_MODEL`, `SUMMARY_MODEL`.
 
 ## Architecture
 
@@ -34,14 +38,20 @@ Root-level Next.js App Router layout — `app/` sits at the project root.
   server-rendered (this keeps `next build` from prerendering browser APIs).
 - `components/LinguaLive.tsx` — the **entire** UI, one large client component
   (`'use client'`). Two views driven by the `view` state: `onboarding` and
-  `session`. All speech-recognition, audio-visualizer, and transcript logic
-  lives here. Browser-only APIs: `webkitSpeechRecognition`, `AudioContext`,
-  `getUserMedia`, `getDisplayMedia`.
-- `app/api/translate/route.ts` — the only backend. A `POST` handler that
-  does two things based on the request body:
+  `session`. Audio-visualizer + transcript logic lives here. Browser APIs:
+  `AudioContext`, `getUserMedia`, `getDisplayMedia`, `MediaRecorder`.
+- `lib/deepgram.ts` — `DeepgramTranscriber`: streams mic/system audio to
+  Deepgram's live WebSocket and reports transcripts with real speaker
+  diarization. This replaced the browser Web Speech API (which only heard the
+  mic and had no speaker info). Some unused Web Speech code remains dead in
+  `LinguaLive.tsx` (`initRecognition`, `detectSpeakerChange`).
+- `app/api/translate/route.ts` — translation + summary. A `POST` handler:
   - translation (`{ text, from, to }`)
   - summary (`{ action: 'summarize', transcript, sourceLang, targetLang }`)
   It calls Claude via `@anthropic-ai/sdk`. Runs on the Node.js runtime.
+- `app/api/deepgram-token/route.ts` — mints a short-lived Deepgram token so
+  the browser can open the Deepgram WebSocket directly without exposing the
+  master key.
 - `components/ui/` — shadcn/ui components (new-york style).
 - `hooks/`, `lib/utils.ts` — small helpers.
 
