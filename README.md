@@ -22,7 +22,7 @@ Built with Next.js 16, React 19, Tailwind CSS v4, and shadcn/ui.
 Browser mic / system audio
         │  Web Speech API (client-side transcription)
         ▼
-  src/app/page.tsx ──fetch──▶ src/app/api/translate/route.ts ──▶ Claude API
+  app/page.tsx ──fetch──▶ app/api/translate/route.ts ──▶ Claude API
         ▲                                                          │
         └──────────────── translated text / summary ◀──────────────┘
 ```
@@ -53,6 +53,7 @@ available in Firefox or Safari.
 This project is configured for zero-config deployment on Vercel.
 
 1. Push the project to a Git repository (GitHub/GitLab/Bitbucket).
+   **`package.json` and the `app/` folder must be at the repository root.**
 2. Import it into Vercel — the Next.js framework is auto-detected.
 3. In **Project Settings → Environment Variables**, add:
 
@@ -69,8 +70,31 @@ Optional environment variables:
 | `TRANSLATION_MODEL` | `claude-haiku-4-5`   | Model used for live translation  |
 | `SUMMARY_MODEL`     | `claude-sonnet-4-6`  | Model used for the AI summary    |
 
-> The translation route runs on the Node.js runtime and is given a 30s function
-> timeout (see `vercel.json` and the `maxDuration` export in the route).
+> The translation route runs on the Node.js runtime with a 30s function
+> timeout (set via the `runtime` and `maxDuration` exports in the route).
+
+### Simplest deploy (no Git needed)
+
+From inside the project folder (the one containing `package.json`):
+
+```bash
+npx vercel
+```
+
+The Vercel CLI deploys the current folder directly, so there is no "root
+directory" to misconfigure.
+
+### Troubleshooting: "Couldn't find any 'pages' or 'app' directory"
+
+This means the build ran in a folder that is **not** the project root. The
+project root is the folder that contains `package.json` **and** the `app/`
+folder side by side.
+
+- **Local build:** `cd` into that folder before running `npm run build`.
+  Run `dir` (Windows) / `ls` — you must see `package.json` and `app` together.
+- **Vercel:** open **Project → Settings → Build and Deployment → Root
+  Directory** and set it to the folder that contains `package.json`
+  (leave it blank if `package.json` is already at the repo root).
 
 ---
 
@@ -112,16 +136,18 @@ Optional environment variables:
 ## Project structure
 
 ```
-src/
-  app/
-    api/translate/route.ts   ← Claude-powered translation + summary API
-    layout.tsx               ← root layout + metadata
-    page.tsx                 ← the entire single-page app (onboarding + session)
-    globals.css              ← Tailwind v4 theme + custom animations
-  components/ui/             ← shadcn/ui component library
-  hooks/                     ← use-toast, use-mobile
-  lib/utils.ts               ← cn() class-name helper
+app/
+  api/translate/route.ts   ← Claude-powered translation + summary API
+  layout.tsx               ← root layout + metadata
+  page.tsx                 ← the entire single-page app (onboarding + session)
+  globals.css              ← Tailwind v4 theme + custom animations
+components/ui/             ← shadcn/ui component library
+hooks/                     ← use-toast, use-mobile
+lib/utils.ts               ← cn() class-name helper
 ```
+
+This uses the standard root-level Next.js App Router layout — `app/` sits at the
+project root next to `package.json`.
 
 The app is a single client component (`page.tsx`) with two views: an onboarding
 screen (pick languages, audio source, speaker count) and a live session screen
