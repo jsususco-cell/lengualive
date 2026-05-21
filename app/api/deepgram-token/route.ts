@@ -29,7 +29,11 @@ export async function POST() {
       const detail = await res.text();
       console.error('Deepgram grant failed:', res.status, detail);
       return NextResponse.json(
-        { error: 'Could not obtain a Deepgram token' },
+        {
+          error: 'Could not obtain a Deepgram token',
+          deepgramStatus: res.status,
+          deepgramDetail: detail.slice(0, 600),
+        },
         { status: 502 },
       );
     }
