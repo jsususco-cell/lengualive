@@ -29,7 +29,10 @@ Without it, `/api/translate` returns a 500. Optional: `TRANSLATION_MODEL`,
 
 Root-level Next.js App Router layout — `app/` sits at the project root.
 
-- `app/page.tsx` — the **entire** UI, one large client component
+- `app/page.tsx` — a thin client wrapper. It loads `components/LinguaLive`
+  via `next/dynamic` with `ssr: false`, so the browser-only UI is never
+  server-rendered (this keeps `next build` from prerendering browser APIs).
+- `components/LinguaLive.tsx` — the **entire** UI, one large client component
   (`'use client'`). Two views driven by the `view` state: `onboarding` and
   `session`. All speech-recognition, audio-visualizer, and transcript logic
   lives here. Browser-only APIs: `webkitSpeechRecognition`, `AudioContext`,
