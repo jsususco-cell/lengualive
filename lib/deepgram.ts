@@ -3,6 +3,11 @@
 // WebSocket API and reports transcripts with real speaker labels
 // (diarization). Hand-rolled on native fetch / WebSocket / MediaRecorder
 // — no SDK — so it bundles cleanly for the browser.
+//
+// Model: nova-3 multilingual ("multi"). It auto-detects the spoken
+// language across Deepgram's supported set — including Tagalog — and
+// handles code-switching (e.g. Taglish), so the app's language picker
+// does not need to be mapped to a Deepgram language code.
 
 export interface DeepgramCallbacks {
   /** Fired once the connection is live and audio is streaming. */
@@ -15,15 +20,6 @@ export interface DeepgramCallbacks {
   onError: (message: string) => void;
   /** The connection closed. */
   onClose?: () => void;
-}
-
-// App language code → Deepgram language code (only where they differ).
-const DG_LANG: Record<string, string> = {
-  fil: 'tl', // Filipino / Tagalog
-};
-
-function toDeepgramLang(code: string): string {
-  return DG_LANG[code] || code;
 }
 
 // Pick the speaker that owns most of the words in a result.
@@ -46,6 +42,8 @@ function dominantSpeaker(words: Array<{ speaker?: number }>, fallback: number): 
 }
 
 export class DeepgramTranscriber {
+  // Kept for reference / future use; the nova-3 multilingual model
+  // auto-detects the language so it is not sent to Deepgram.
   private language: string;
   private cb: DeepgramCallbacks;
   private ws: WebSocket | null = null;
@@ -72,11 +70,11 @@ export class DeepgramTranscriber {
     const { token } = await tokenRes.json();
     if (!token) throw new Error('No Deepgram token was returned');
 
-    // 2. Open the streaming WebSocket. nova-2 has broad language coverage
-    //    (incl. Tagalog) and supports diarization on streaming.
+    // 2. Open the streaming WebSocket. nova-3 "multi" = multilingual,
+    //    supports diarization on streaming.
     const params = new URLSearchParams({
-      model: 'nova-2',
-      language: toDeepgramLang(this.language),
+      model: 'nova-3',
+      language: 'multi',
       diarize: 'true',
       interim_results: 'true',
       punctuate: 'true',
@@ -84,8 +82,9 @@ export class DeepgramTranscriber {
       endpointing: '500',
     });
     const url = `wss://api.deepgram.com/v1/listen?${params.toString()}`;
-    // Browser auth: the token rides in the Sec-WebSocket-Protocol subprotocol.
-    const ws = new WebSocket(url, ['token', token]);
+    // Browser auth: the grant token rides in the Sec-WebSocket-Protocol
+    // subprotocol under the 'bearer' scheme (a raw API key would use 'token').
+    const ws = new WebSocket(url, ['bearer', token]);
     this.ws = ws;
 
     ws.onopen = () => {
