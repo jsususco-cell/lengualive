@@ -29,6 +29,11 @@ Two keys are **required** (set in `.env` locally / Vercel env vars in prod):
 
 Optional: `TRANSLATION_MODEL`, `SUMMARY_MODEL`.
 
+For the **live meeting bot** feature (`view === 'live'`), set
+`BOT_WORKER_URL` and `WORKER_API_TOKEN` to point at a deployed
+`lengualive-bot-worker` service. Without them, `/api/meeting` returns
+503 and the rest of the app is unaffected.
+
 ## Architecture
 
 Root-level Next.js App Router layout — `app/` sits at the project root.
@@ -60,6 +65,13 @@ Root-level Next.js App Router layout — `app/` sits at the project root.
 - `components/RecordingTranslator.tsx` — the "recorded meeting" screen:
   upload a file or paste a URL → `/api/transcribe` → translate each segment
   via `/api/translate`. Reached from onboarding (`view === 'upload'`).
+- `app/api/meeting/route.ts` — server-side proxy to the **bot-worker**
+  (a separate repo/service). Holds `WORKER_API_TOKEN` server-side and
+  returns the browser a session-scoped stream token + WebSocket URL, so
+  the master secret never reaches the client.
+- `components/LiveMeeting.tsx` — the "live meeting bot" screen
+  (`view === 'live'`): dispatches a bot into a meeting via `/api/meeting`
+  and renders the transcript streamed back over a WebSocket.
 - `components/ui/` — shadcn/ui components (new-york style).
 - `hooks/`, `lib/utils.ts` — small helpers.
 

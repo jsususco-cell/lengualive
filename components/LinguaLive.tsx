@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { useToast } from '@/hooks/use-toast';
 import { DeepgramTranscriber } from '@/lib/deepgram';
 import RecordingTranslator from '@/components/RecordingTranslator';
+import LiveMeeting from '@/components/LiveMeeting';
 
 // ─── Language Data ──────────────────────────────────────────────
 const LANGUAGES = [
@@ -52,7 +53,7 @@ const SPEAKER_COLORS = [
   { bg: 'rgba(244,114,182,0.10)', border: 'rgba(244,114,182,0.3)', text: '#F472B6', dot: '#DB2777' },
 ];
 
-type View = 'onboarding' | 'session' | 'upload';
+type View = 'onboarding' | 'session' | 'upload' | 'live';
 type TabView = 'split' | 'original' | 'translated';
 type AudioSource = 'mic' | 'computer';
 
@@ -896,19 +897,28 @@ export default function Home() {
               }
             </p>
 
-            {/* Recorded-meeting path */}
+            {/* Other entry points */}
             <div className="mt-6 flex items-center gap-3 max-w-xs mx-auto">
               <span className="flex-1 h-px bg-[var(--surface-4)]" />
               <span className="text-[10px] uppercase tracking-widest text-zinc-700">or</span>
               <span className="flex-1 h-px bg-[var(--surface-4)]" />
             </div>
-            <button
-              onClick={() => setView('upload')}
-              className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[var(--surface-3)] border border-[var(--surface-4)] text-xs font-semibold text-zinc-300 hover:text-white hover:border-[var(--surface-5)] transition-colors"
-            >
-              <FileText className="w-3.5 h-3.5" />
-              Translate a recorded meeting
-            </button>
+            <div className="mt-4 flex flex-wrap gap-2 justify-center">
+              <button
+                onClick={() => setView('live')}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[var(--surface-3)] border border-[var(--surface-4)] text-xs font-semibold text-zinc-300 hover:text-white hover:border-[var(--surface-5)] transition-colors"
+              >
+                <Video className="w-3.5 h-3.5" />
+                Send a bot to a meeting
+              </button>
+              <button
+                onClick={() => setView('upload')}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[var(--surface-3)] border border-[var(--surface-4)] text-xs font-semibold text-zinc-300 hover:text-white hover:border-[var(--surface-5)] transition-colors"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                Translate a recording
+              </button>
+            </div>
           </div>
 
         </div>
@@ -921,6 +931,17 @@ export default function Home() {
   // ═══════════════════════════════════════════════════════════════
   if (view === 'upload') return (
     <RecordingTranslator
+      source={srcLang || { code: sourceLang, name: sourceLang, flag: '🌐' }}
+      target={tgtLang || { code: targetLang, name: targetLang, flag: '🌐' }}
+      onBack={() => setView('onboarding')}
+    />
+  );
+
+  // ═══════════════════════════════════════════════════════════════
+  // ─── LIVE MEETING (bot) ─────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════
+  if (view === 'live') return (
+    <LiveMeeting
       source={srcLang || { code: sourceLang, name: sourceLang, flag: '🌐' }}
       target={tgtLang || { code: targetLang, name: targetLang, flag: '🌐' }}
       onBack={() => setView('onboarding')}
