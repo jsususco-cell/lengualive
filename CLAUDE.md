@@ -52,6 +52,14 @@ Root-level Next.js App Router layout — `app/` sits at the project root.
 - `app/api/deepgram-token/route.ts` — mints a short-lived Deepgram token so
   the browser can open the Deepgram WebSocket directly without exposing the
   master key.
+- `app/api/transcribe/route.ts` — pre-recorded transcription. A `POST`
+  handler that streams an uploaded audio/video file (raw bytes) — or a
+  remote `{ url }` — to Deepgram's pre-recorded API and returns diarized
+  speaker segments. Direct file upload is bounded by Vercel's ~4.5 MB
+  serverless body limit; large files use the URL path.
+- `components/RecordingTranslator.tsx` — the "recorded meeting" screen:
+  upload a file or paste a URL → `/api/transcribe` → translate each segment
+  via `/api/translate`. Reached from onboarding (`view === 'upload'`).
 - `components/ui/` — shadcn/ui components (new-york style).
 - `hooks/`, `lib/utils.ts` — small helpers.
 
