@@ -14,10 +14,11 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import {
   ArrowLeft, Video, Square, Copy, Download, AlertCircle, RotateCcw,
-  Check, Sparkles, Radio,
+  Check, Sparkles, Radio, PictureInPicture2,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import type { LangInfo } from '@/components/RecordingTranslator';
+import FloatingTranslator, { pipSupported, type Caption } from '@/components/FloatingTranslator';
 
 interface LiveMeetingProps {
   source: LangInfo;
@@ -72,6 +73,12 @@ export default function LiveMeeting({ source, target, onBack }: LiveMeetingProps
   const [entries, setEntries]     = useState<Entry[]>([]);
   const [interim, setInterim]     = useState<{ text: string; speaker: number } | null>(null);
 
+  // Floating PiP widget: `pipWanted` is what we ask for, `pipOpen` is what
+  // the browser actually granted (reported back by FloatingTranslator).
+  const [pipWanted, setPipWanted] = useState(false);
+  const [pipOpen, setPipOpen]     = useState(false);
+  const canPip = pipSupported();
+
   const wsRef        = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const entryIdRef   = useRef(0);
@@ -83,6 +90,21 @@ export default function LiveMeeting({ source, target, onBack }: LiveMeetingProps
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [entries, interim]);
+
+  // ─── Floating widget: pop out automatically once the bot is live ──
+  // (Browsers only allow this if there's recent user activation; if not,
+  // it silently no-ops and the user can pop it out with the button.)
+  useEffect(() => {
+    if (phase === 'live' && canPip) setPipWanted(true);
+  }, [phase, canPip]);
+
+  // Single source of truth for the *actual* window state. A false report
+  // (manual close, blocked open) also clears `pipWanted` so it doesn't
+  // immediately re-open.
+  const onPipOpenChange = useCallback((open: boolean) => {
+    setPipOpen(open);
+    if (!open) setPipWanted(false);
+  }, []);
 
   // ─── Tear everything down ─────────────────────────────────────
   const teardown = useCallback((endOnServer: boolean) => {
@@ -192,6 +214,7 @@ export default function LiveMeeting({ source, target, onBack }: LiveMeetingProps
     teardown(true);
     setPhase('ended');
     setInterim(null);
+    setPipWanted(false);
   }, [teardown]);
 
   // ─── Copy / download ──────────────────────────────────────────
@@ -236,13 +259,35 @@ export default function LiveMeeting({ source, target, onBack }: LiveMeetingProps
     setEntries([]);
     setInterim(null);
     entryIdRef.current = 0;
+    setPipWanted(false);
   }, [teardown]);
+
+  // Captions for the floating widget (latest finalized + one for context).
+  const lastEntry = entries[entries.length - 1];
+  const pipLatest: Caption | null = lastEntry
+    ? { speaker: lastEntry.speaker, original: lastEntry.original, translated: lastEntry.translated }
+    : null;
+  const prevEntry = entries[entries.length - 2];
+  const pipPrevious: Caption | null = prevEntry
+    ? { speaker: prevEntry.speaker, original: prevEntry.original, translated: prevEntry.translated }
+    : null;
 
   const showTranscript = phase === 'joining' || phase === 'waiting-admit' || phase === 'live' || phase === 'ended';
 
   // ═══════════════════════════════════════════════════════════════
   return (
     <>
+      <FloatingTranslator
+        desiredOpen={pipWanted}
+        onOpenChange={onPipOpenChange}
+        latest={pipLatest}
+        previous={pipPrevious}
+        interim={interim}
+        live={phase === 'live'}
+        sourceFlag={source.flag}
+        targetFlag={target.flag}
+      />
+
       <div className="bg-mesh" />
       <div className="noise-overlay" />
 
@@ -270,6 +315,20 @@ export default function LiveMeeting({ source, target, onBack }: LiveMeetingProps
               <span className="text-zinc-600 mx-0.5">→</span>
               <span className="text-base leading-none">{target.flag}</span>
             </div>
+            {isActive && canPip && (
+              <button
+                onClick={() => setPipWanted(v => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
+                  pipOpen
+                    ? 'bg-[var(--brand-500)]/15 text-[var(--brand-400)] border-[var(--brand-500)]/30'
+                    : 'bg-[var(--surface-3)] text-zinc-300 border-[var(--surface-4)] hover:text-white'
+                }`}
+                title={pipOpen ? 'Close the floating widget' : 'Pop out a floating translation widget'}
+              >
+                <PictureInPicture2 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">{pipOpen ? 'Floating' : 'Pop out'}</span>
+              </button>
+            )}
             {isActive && (
               <button
                 onClick={end}
